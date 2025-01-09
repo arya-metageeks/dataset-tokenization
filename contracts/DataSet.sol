@@ -1,0 +1,297 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
+enum AccessType {
+    None,
+    Expiry,
+    D2C,
+    Full
+}
+
+struct Dataset {
+    string name;
+    string description;
+    string uri;
+    uint256 fullAccessTokens;
+    uint256 d2cAccessTokens;
+    uint256 expiryAccessTokens;
+    uint256 expiryDuration;
+    uint256 version;
+    bool active;
+    address tokenAddress;
+    uint256 tokenPrice;
+}
+
+struct Access {
+    AccessType accessType;
+    uint256 expiryTime;
+    bool active;
+}
+
+contract DatasetTokenUpgradeable is
+    Initializable,
+    ERC20Upgradeable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
+    uint256 public datasetId;
+    uint256 public tokenPrice;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        string memory name,
+        string memory symbol,
+        uint256 _datasetId,
+        uint256 _tokenPrice,
+        address initialOwner
+    ) public initializer {
+        __ERC20_init(name, symbol);
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+        datasetId = _datasetId;
+        tokenPrice = _tokenPrice;
+    }
+
+    function mintTokens() external payable {
+        require(msg.value > 0, "Must send ETH to mint tokens");
+
+        // Simple calculation: ETH sent / token price
+        uint256 tokenAmount = msg.value / tokenPrice;
+
+        // Then multiply by decimals to maintain token precision
+        uint256 tokenAmountWithDecimals = tokenAmount * (10 ** decimals());
+
+        _mint(msg.sender, tokenAmountWithDecimals);
+        payable(owner()).transfer(msg.value);
+    }
+
+    function updateTokenPrice(uint256 newPrice) external onlyOwner {
+        tokenPrice = newPrice;
+    }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
+}
+
+contract DatasetNFTUpgradeable is
+    Initializable,
+    ERC721Upgradeable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
+    address public factory;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize() public initializer {
+        __ERC721_init("Dataset NFT", "DNFT");
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
+        factory = msg.sender;
+    }
+
+    function mint(address to, uint256 tokenId) external {
+        require(msg.sender == factory, "Only factory can mint");
+        _safeMint(to, tokenId);
+    }
+
+    function setFactory(address _factory) external onlyOwner {
+        factory = _factory;
+    }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
+}
+
+contract DatasetFactoryUpgradeable is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
+    uint256 public _datasetIds;
+    mapping(uint256 => Dataset) public datasets;
+    mapping(address => mapping(uint256 => Access)) public accessRights;
+    address public nftContract;
+    address public tokenImplementation; // Store the token implementation address
+
+    event DatasetCreated(
+        uint256 indexed datasetId,
+        string name,
+        address owner,
+        address tokenAddress
+    );
+    event AccessGranted(
+        address indexed user,
+        uint256 indexed datasetId,
+        AccessType accessType
+    );
+    event AccessRevoked(address indexed user, uint256 indexed datasetId);
+    event URIUpdated(uint256 indexed datasetId, string newUri, uint256 version);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _nftContract) public initializer {
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init();
+        nftContract = _nftContract;
+
+        // Deploy the token implementation
+        DatasetTokenUpgradeable tokenImpl = new DatasetTokenUpgradeable();
+        tokenImplementation = address(tokenImpl);
+    }
+
+    function createDataset(
+        string memory name,
+        string memory description,
+        string memory uri,
+        uint256 fullAccessTokens,
+        uint256 d2cAccessTokens,
+        uint256 expiryAccessTokens,
+        uint256 expiryDuration,
+        uint256 tokenPrice
+    ) external returns (uint256) {
+        _datasetIds++;
+        uint256 newDatasetId = _datasetIds;
+
+        string memory tokenName = string(
+            abi.encodePacked("Dataset Token ", name)
+        );
+        string memory tokenSymbol = string(abi.encodePacked("DT", name));
+
+        // Create initialization data
+        bytes memory initData = abi.encodeWithSelector(
+            DatasetTokenUpgradeable.initialize.selector,
+            tokenName,
+            tokenSymbol,
+            newDatasetId,
+            tokenPrice,
+            msg.sender
+        );
+
+        // Deploy proxy
+        ERC1967Proxy proxy = new ERC1967Proxy(tokenImplementation, initData);
+
+        datasets[newDatasetId] = Dataset({
+            name: name,
+            description: description,
+            uri: uri,
+            fullAccessTokens: fullAccessTokens,
+            d2cAccessTokens: d2cAccessTokens,
+            expiryAccessTokens: expiryAccessTokens,
+            expiryDuration: expiryDuration,
+            version: 1,
+            active: true,
+            tokenAddress: address(proxy),
+            tokenPrice: tokenPrice
+        });
+
+        DatasetNFTUpgradeable(nftContract).mint(msg.sender, newDatasetId);
+
+        emit DatasetCreated(newDatasetId, name, msg.sender, address(proxy));
+        return newDatasetId;
+    }
+
+    function purchaseAccess(uint256 datasetId, AccessType accessType) external {
+        Dataset storage dataset = datasets[datasetId];
+        require(dataset.active, "Dataset is not active");
+
+        uint256 requiredTokens;
+        uint256 expiryTime = type(uint256).max;
+
+        if (accessType == AccessType.Full) {
+            requiredTokens = dataset.fullAccessTokens;
+        } else if (accessType == AccessType.D2C) {
+            requiredTokens = dataset.d2cAccessTokens;
+        } else if (accessType == AccessType.Expiry) {
+            requiredTokens = dataset.expiryAccessTokens;
+            expiryTime = block.timestamp + dataset.expiryDuration;
+        } else {
+            revert("Invalid access type");
+        }
+
+        DatasetTokenUpgradeable token = DatasetTokenUpgradeable(
+            dataset.tokenAddress
+        );
+        require(
+            token.transferFrom(msg.sender, owner(), requiredTokens),
+            "Token transfer failed"
+        );
+
+        accessRights[msg.sender][datasetId] = Access({
+            accessType: accessType,
+            expiryTime: expiryTime,
+            active: true
+        });
+
+        emit AccessGranted(msg.sender, datasetId, accessType);
+    }
+
+    function checkAccess(
+        address user,
+        uint256 datasetId
+    ) public view returns (bool) {
+        Access memory access = accessRights[user][datasetId];
+        return
+            access.active &&
+            (access.accessType == AccessType.Full ||
+                access.accessType == AccessType.D2C ||
+                (access.accessType == AccessType.Expiry &&
+                    block.timestamp <= access.expiryTime));
+    }
+
+    function revokeAccess(address user, uint256 datasetId) external {
+        require(
+            msg.sender == DatasetNFTUpgradeable(nftContract).ownerOf(datasetId),
+            "Only dataset owner can revoke access"
+        );
+        require(
+            accessRights[user][datasetId].active,
+            "No active access rights"
+        );
+
+        accessRights[user][datasetId].active = false;
+        emit AccessRevoked(user, datasetId);
+    }
+
+    function updateDatasetURI(
+        uint256 datasetId,
+        string memory newUri
+    ) external {
+        require(
+            msg.sender == DatasetNFTUpgradeable(nftContract).ownerOf(datasetId),
+            "Only dataset owner can update URI"
+        );
+        Dataset storage dataset = datasets[datasetId];
+        dataset.uri = newUri;
+        dataset.version += 1;
+        emit URIUpdated(datasetId, newUri, dataset.version);
+    }
+
+    function setNFTContract(address _nftContract) external onlyOwner {
+        require(_nftContract != address(0), "Invalid NFT contract address");
+        nftContract = _nftContract;
+    }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
+}
