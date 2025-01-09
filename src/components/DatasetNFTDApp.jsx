@@ -203,7 +203,7 @@ const DatasetNFTDApp = () => {
         parseEther(formDataToSubmit.expiryAccessTokens.toString()),
         Number(formDataToSubmit.expiryDuration) * 24 * 60 * 60,
         parseEther(formDataToSubmit.tokenPrice.toString()),
-        { gasLimit: 10000000}
+        { gasLimit: gasLimit}
       );
 
       const receipt = await tx.wait();
@@ -226,69 +226,75 @@ const DatasetNFTDApp = () => {
     }
   };
 
-  const handleAccessPurchase = async (datasetId, accessType) => {
-    try {
-      setLoading(true);
-      const dataset = datasets.find((d) => d.id === datasetId);
-      if (!dataset) return;
-   
-      const accessTypeMap = {
-        full: 3,
-        d2c: 2, 
-        expiry: 1
-      };
-   
-      const tokenContract = new Contract(
-        dataset.tokenAddress,
-        TOKEN_ABI,
-        signer
-      );
-   
-      const requiredTokens = parseEther(
-        accessType === "expiry" 
-          ? dataset.expiryAccessTokens
-          : accessType === "d2c"
-          ? dataset.d2cAccessTokens 
-          : dataset.fullAccessTokens
-      );
-   
-      const userBalance = await tokenContract.balanceOf(account);
-      console.log("Initial balance:", formatEther(userBalance));
-   
-      if (userBalance < requiredTokens) {
-        alert("Insufficient Balance. Please Purchase More Tokens");
-        return;
-      }
-   
-      const approveTx = await tokenContract.approve(FACTORY_ADDRESS, requiredTokens);
-      await approveTx.wait();
-   
-      const tx = await factoryContract.purchaseAccess(
-        datasetId,
-        accessTypeMap[accessType],
-        { gasLimit: 1000000 }
-      );
-      await tx.wait();
-   
-      const updatedBalance = await tokenContract.balanceOf(account);
-      console.log("Updated balance:", formatEther(updatedBalance));
-   
-      await loadDatasets();
-      
-      // Refresh UI with new balance
-      const refreshedContract = new Contract(dataset.tokenAddress, TOKEN_ABI, signer);
-      const finalBalance = await refreshedContract.balanceOf(account);
-      console.log("Final balance check:", formatEther(finalBalance));
-   
-    } catch (error) {
-      console.error("Failed to purchase access:", error);
-      alert("Failed to purchase access: " + (error.reason || error.message));
-    } finally {
-      setLoading(false);
-    }
+const handleAccessPurchase = async (datasetId, accessType) => {
+ try {
+   setLoading(true);
+   const dataset = datasets.find((d) => d.id === datasetId);
+   if (!dataset) return;
+
+   const accessTypeMap = {
+     full: 3,
+     d2c: 2, 
+     expiry: 1
    };
 
+   const tokenContract = new Contract(
+     dataset.tokenAddress,
+     TOKEN_ABI,
+     signer
+   );
+
+   const requiredTokens = parseEther(
+     accessType === "expiry" 
+       ? dataset.expiryAccessTokens
+       : accessType === "d2c"
+       ? dataset.d2cAccessTokens 
+       : dataset.fullAccessTokens
+   );
+
+   const userBalance = await tokenContract.balanceOf(account);
+   console.log("Initial balance:", formatEther(userBalance));
+
+   if (userBalance < requiredTokens) {
+     alert("Insufficient Balance. Please Purchase More Tokens");
+     return;
+   }
+
+   const approveTx = await tokenContract.approve(FACTORY_ADDRESS, requiredTokens);
+   await approveTx.wait();
+
+   const gasEstimate = await factoryContract.purchaseAccess.estimateGas(
+    datasetId,
+    accessTypeMap[accessType]
+   )
+
+   const gasLimit = parseInt(Number(gasEstimate) * 1.2);
+   console.log("GASLIMIT:", gasLimit);
+
+   const tx = await factoryContract.purchaseAccess(
+     datasetId,
+     accessTypeMap[accessType],
+     { gasLimit: gasLimit }
+   );
+   await tx.wait();
+
+   const updatedBalance = await tokenContract.balanceOf(account);
+   console.log("Updated balance:", formatEther(updatedBalance));
+
+   await loadDatasets();
    
+   // Refresh UI with new balance
+   const refreshedContract = new Contract(dataset.tokenAddress, TOKEN_ABI, signer);
+   const finalBalance = await refreshedContract.balanceOf(account);
+   console.log("Final balance check:", formatEther(finalBalance));
+
+ } catch (error) {
+   console.error("Failed to purchase access:", error);
+   alert("Failed to purchase access: " + (error.reason || error.message));
+ } finally {
+   setLoading(false);
+ }
+};
   const purchaseAccess = async (datasetId, accessType) => {
     try {
       setLoading(true);
