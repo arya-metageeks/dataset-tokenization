@@ -15,8 +15,6 @@ module.exports = {
     }
   },
 
-  // defaultNetwork: "localhost",
-
   networks: {
     localhost: {
       url: "http://127.0.0.1:8545",
@@ -24,12 +22,6 @@ module.exports = {
       blockGasLimit: 12000000,
       allowUnlimitedContractSize: true,
     },
-
-    // sepolia: {
-    //   url: "https://rpc.sepolia.org", // Ethereum Sepolia RPC URL
-    //   accounts: [process.env.MASTER_PRIVATE_KEY_TESTNET], // Deployment wallet private key for Sepolia
-    //   chainId: 11155111, // Sepolia chain ID
-    // },
 
     arbitrumSepolia: {
       url: "https://sepolia-rollup.arbitrum.io/rpc",
@@ -39,17 +31,10 @@ module.exports = {
       confirmations: 2,
       // gasMultiplier: 1.2
     },
-
-    // arbitrumOne: {
-    //   url: "https://arb1.arbitrum.io/rpc",
-    //   accounts: [process.env.MASTER_PRIVATE_KEY], 
-    //   chainId: 42161, // Arbitrum One chain ID
-    // },
   },
   etherscan: {
     apiKey: {
       arbitrumSepolia: "KNIBW9U4QAQUCVZEP66GTNXQ7ZJS463A59",
-      // sepolia: process.env.ETHERSCAN_API_KEY
     },
   },
 };

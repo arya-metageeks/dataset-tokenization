@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -15,18 +16,29 @@ enum AccessType {
     Full
 }
 
+enum PaymentMode {
+    ETH,
+    USDT,
+    CLUSTER,
+    CUSTOM_TOKEN
+}
+
+struct PriceInfo {
+    uint256 fullAccessPrice;
+    uint256 d2cAccessPrice;
+    uint256 expiryAccessPrice;
+}
+
 struct Dataset {
     string name;
     string description;
     string uri;
-    uint256 fullAccessTokens;
-    uint256 d2cAccessTokens;
-    uint256 expiryAccessTokens;
     uint256 expiryDuration;
     uint256 version;
     bool active;
-    address tokenAddress;
-    uint256 tokenPrice;
+    PaymentMode paymentMode;
+    address customTokenAddress; // Only used if paymentMode is CUSTOM_TOKEN
+    PriceInfo prices;
 }
 
 struct Access {
@@ -42,7 +54,6 @@ contract DatasetTokenUpgradeable is
     UUPSUpgradeable
 {
     uint256 public datasetId;
-    uint256 public tokenPrice;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -53,31 +64,14 @@ contract DatasetTokenUpgradeable is
         string memory name,
         string memory symbol,
         uint256 _datasetId,
-        uint256 _tokenPrice,
+        uint256 initialSupply,
         address initialOwner
     ) public initializer {
         __ERC20_init(name, symbol);
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         datasetId = _datasetId;
-        tokenPrice = _tokenPrice;
-    }
-
-    function mintTokens() external payable {
-        require(msg.value > 0, "Must send ETH to mint tokens");
-
-        // Simple calculation: ETH sent / token price
-        uint256 tokenAmount = msg.value / tokenPrice;
-
-        // Then multiply by decimals to maintain token precision
-        uint256 tokenAmountWithDecimals = tokenAmount * (10 ** decimals());
-
-        _mint(msg.sender, tokenAmountWithDecimals);
-        payable(owner()).transfer(msg.value);
-    }
-
-    function updateTokenPrice(uint256 newPrice) external onlyOwner {
-        tokenPrice = newPrice;
+        _mint(initialOwner, initialSupply);
     }
 
     function _authorizeUpgrade(
@@ -98,9 +92,9 @@ contract DatasetNFTUpgradeable is
         _disableInitializers();
     }
 
-    function initialize() public initializer {
+    function initialize(address initialOwner) public initializer {
         __ERC721_init("Dataset NFT", "DNFT");
-        __Ownable_init(msg.sender);
+        __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
         factory = msg.sender;
     }
@@ -127,20 +121,25 @@ contract DatasetFactoryUpgradeable is
     uint256 public _datasetIds;
     mapping(uint256 => Dataset) public datasets;
     mapping(address => mapping(uint256 => Access)) public accessRights;
+
     address public nftContract;
-    address public tokenImplementation; // Store the token implementation address
+    address public usdtAddress;
+    address public clusterAddress;
+    address public tokenImplementation;
 
     event DatasetCreated(
         uint256 indexed datasetId,
         string name,
         address owner,
-        address tokenAddress
+        PaymentMode paymentMode,
+        address customTokenAddress
     );
     event AccessGranted(
         address indexed user,
         uint256 indexed datasetId,
         AccessType accessType
     );
+
     event AccessRevoked(address indexed user, uint256 indexed datasetId);
     event URIUpdated(uint256 indexed datasetId, string newUri, uint256 version);
 
@@ -149,10 +148,16 @@ contract DatasetFactoryUpgradeable is
         _disableInitializers();
     }
 
-    function initialize(address _nftContract) public initializer {
+    function initialize(
+        address _nftContract,
+        address _usdtAddress,
+        address _clusterAddress
+    ) public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
         nftContract = _nftContract;
+        usdtAddress = _usdtAddress;
+        clusterAddress = _clusterAddress;
 
         // Deploy the token implementation
         DatasetTokenUpgradeable tokenImpl = new DatasetTokenUpgradeable();
@@ -163,78 +168,132 @@ contract DatasetFactoryUpgradeable is
         string memory name,
         string memory description,
         string memory uri,
-        uint256 fullAccessTokens,
-        uint256 d2cAccessTokens,
-        uint256 expiryAccessTokens,
         uint256 expiryDuration,
-        uint256 tokenPrice
+        PaymentMode paymentMode,
+        PriceInfo memory prices,
+        uint256 customTokenSupply // Only used if paymentMode is CUSTOM_TOKEN
     ) external returns (uint256) {
         _datasetIds++;
         uint256 newDatasetId = _datasetIds;
 
-        string memory tokenName = string(
-            abi.encodePacked("Dataset Token ", name)
-        );
-        string memory tokenSymbol = string(abi.encodePacked("DT", name));
+        address customTokenAddress = address(0);
 
-        // Create initialization data
-        bytes memory initData = abi.encodeWithSelector(
-            DatasetTokenUpgradeable.initialize.selector,
-            tokenName,
-            tokenSymbol,
-            newDatasetId,
-            tokenPrice,
-            msg.sender
-        );
+        // If custom token is selected, deploy it
+        if (paymentMode == PaymentMode.CUSTOM_TOKEN) {
+            string memory tokenName = string(
+                abi.encodePacked("Dataset Token ", name)
+            );
+            string memory tokenSymbol = string(abi.encodePacked("DT", name));
 
-        // Deploy proxy
-        ERC1967Proxy proxy = new ERC1967Proxy(tokenImplementation, initData);
+            bytes memory initData = abi.encodeWithSelector(
+                DatasetTokenUpgradeable.initialize.selector,
+                tokenName,
+                tokenSymbol,
+                newDatasetId,
+                customTokenSupply,
+                msg.sender
+            );
+
+            ERC1967Proxy proxy = new ERC1967Proxy(
+                tokenImplementation,
+                initData
+            );
+            customTokenAddress = address(proxy);
+        }
 
         datasets[newDatasetId] = Dataset({
             name: name,
             description: description,
             uri: uri,
-            fullAccessTokens: fullAccessTokens,
-            d2cAccessTokens: d2cAccessTokens,
-            expiryAccessTokens: expiryAccessTokens,
             expiryDuration: expiryDuration,
             version: 1,
             active: true,
-            tokenAddress: address(proxy),
-            tokenPrice: tokenPrice
+            paymentMode: paymentMode,
+            customTokenAddress: customTokenAddress,
+            prices: prices
         });
 
         DatasetNFTUpgradeable(nftContract).mint(msg.sender, newDatasetId);
 
-        emit DatasetCreated(newDatasetId, name, msg.sender, address(proxy));
+        emit DatasetCreated(
+            newDatasetId,
+            name,
+            msg.sender,
+            paymentMode,
+            customTokenAddress
+        );
         return newDatasetId;
     }
 
-    function purchaseAccess(uint256 datasetId, AccessType accessType) external {
+    function purchaseAccess(
+        uint256 datasetId,
+        AccessType accessType
+    ) external payable {
         Dataset storage dataset = datasets[datasetId];
         require(dataset.active, "Dataset is not active");
 
-        uint256 requiredTokens;
-        uint256 expiryTime = type(uint256).max;
-
+        uint256 price;
         if (accessType == AccessType.Full) {
-            requiredTokens = dataset.fullAccessTokens;
+            price = dataset.prices.fullAccessPrice;
         } else if (accessType == AccessType.D2C) {
-            requiredTokens = dataset.d2cAccessTokens;
+            price = dataset.prices.d2cAccessPrice;
         } else if (accessType == AccessType.Expiry) {
-            requiredTokens = dataset.expiryAccessTokens;
-            expiryTime = block.timestamp + dataset.expiryDuration;
+            price = dataset.prices.expiryAccessPrice;
         } else {
             revert("Invalid access type");
         }
 
-        DatasetTokenUpgradeable token = DatasetTokenUpgradeable(
-            dataset.tokenAddress
+        address datasetOwner = DatasetNFTUpgradeable(nftContract).ownerOf(
+            datasetId
         );
-        require(
-            token.transferFrom(msg.sender, owner(), requiredTokens),
-            "Token transfer failed"
-        );
+
+        // Handle payment based on payment mode
+        if (dataset.paymentMode == PaymentMode.ETH) {
+            require(msg.value == price, "Incorrect ETH amount");
+            payable(datasetOwner).transfer(msg.value);
+        } else if (dataset.paymentMode == PaymentMode.USDT) {
+            require(msg.value == 0, "ETH not accepted for this dataset");
+            require(
+                IERC20(usdtAddress).transferFrom(
+                    msg.sender,
+                    datasetOwner,
+                    price
+                ),
+                "USDT transfer failed"
+            );
+        } else if (dataset.paymentMode == PaymentMode.CLUSTER) {
+            require(msg.value == 0, "ETH not accepted for this dataset");
+            require(
+                IERC20(clusterAddress).transferFrom(
+                    msg.sender,
+                    datasetOwner,
+                    price
+                ),
+                "CLUSTER transfer failed"
+            );
+        } else if (dataset.paymentMode == PaymentMode.CUSTOM_TOKEN) {
+            require(msg.value == 0, "ETH not accepted for this dataset");
+            require(
+                dataset.customTokenAddress != address(0),
+                "Custom token not set"
+            );
+
+            // Using specific DatasetTokenUpgradeable type
+            DatasetTokenUpgradeable customToken = DatasetTokenUpgradeable(
+                dataset.customTokenAddress
+            );
+            require(
+                customToken.transferFrom(msg.sender, datasetOwner, price),
+                "Dataset token transfer failed"
+            );
+        } else {
+            revert("Invalid payment mode");
+        }
+
+        // Grant access
+        uint256 expiryTime = accessType == AccessType.Expiry
+            ? block.timestamp + dataset.expiryDuration
+            : type(uint256).max;
 
         accessRights[msg.sender][datasetId] = Access({
             accessType: accessType,
@@ -245,18 +304,22 @@ contract DatasetFactoryUpgradeable is
         emit AccessGranted(msg.sender, datasetId, accessType);
     }
 
-    function checkAccess(
-        address user,
-        uint256 datasetId
-    ) public view returns (bool) {
-        Access memory access = accessRights[user][datasetId];
-        return
-            access.active &&
-            (access.accessType == AccessType.Full ||
-                access.accessType == AccessType.D2C ||
-                (access.accessType == AccessType.Expiry &&
-                    block.timestamp <= access.expiryTime));
-    }
+function checkAccess(
+    address user,
+    uint256 datasetId
+) public view returns (bool hasAccess, AccessType accessType) {
+    Access memory access = accessRights[user][datasetId];
+    
+    // Check if access is active and valid
+    hasAccess = access.active && (
+        access.accessType == AccessType.Full ||
+        access.accessType == AccessType.D2C ||
+        (access.accessType == AccessType.Expiry && block.timestamp <= access.expiryTime)
+    );
+    
+    // Return the access type regardless of whether it's active/valid
+    accessType = access.accessType;
+}
 
     function revokeAccess(address user, uint256 datasetId) external {
         require(

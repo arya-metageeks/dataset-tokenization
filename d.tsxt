@@ -266,33 +266,26 @@ const DatasetNFTDApp = () => {
       setLoading(false);
     }
   };
+
   const getPrice = (dataset, accessType) => {
-    // Get the base price amount
-    let price;
     switch (accessType) {
       case "full":
-        price = dataset.prices.fullAccessPrice;
-        break;
+        return parseUnits(
+          dataset.prices.fullAccessPrice.toString(),
+          dataset.paymentMode === BigInt(1) ? 6 : 18
+        );
       case "d2c":
-        price = dataset.prices.d2cAccessPrice;
-        break;
+        return parseUnits(
+          dataset.prices.d2cAccessPrice.toString(),
+          dataset.paymentMode === BigInt(1) ? 6 : 18
+        );
       case "expiry":
-        price = dataset.prices.expiryAccessPrice;
-        break;
+        return parseUnits(
+          dataset.prices.expiryAccessPrice.toString(),
+          dataset.paymentMode === BigInt(1) ? 6 : 18
+        );
       default:
         return 0;
-    }
-
-    // Convert based on payment mode
-    if (dataset.paymentMode === BigInt(0)) {
-      // ETH
-      return parseEther(price.toString());
-    } else if (dataset.paymentMode === BigInt(1)) {
-      // USDT
-      return parseUnits(price.toString(), 6); // USDT uses 6 decimals
-    } else {
-      // CLUSTER or Custom Token (using 18 decimals)
-      return parseEther(price.toString());
     }
   };
 
@@ -320,50 +313,67 @@ const DatasetNFTDApp = () => {
             ? CLUSTER_ADDRESS
             : dataset.customTokenAddress;
 
-        console.log("Token Address:", tokenAddress);
+        console.log("Selected Token Address:", tokenAddress);
+        console.log("Factory Address for Approval:", FACTORY_ADDRESS);
+
         const tokenContract = new Contract(tokenAddress, TOKEN_ABI, signer);
         const price = getPrice(dataset, accessType);
-        console.log("Token Price:", price.toString());
 
-        // Get user's token balance
-        const balance = await tokenContract.balanceOf(
-          await signer.getAddress()
-        );
-        console.log("User Token Balance:", balance.toString());
-
-        if (balance < price) {
-          throw new Error("Insufficient token balance");
-        }
-
-        // Add gas estimation
+        // Get gas estimate for approval
         const gasLimit = await tokenContract.approve.estimateGas(
           FACTORY_ADDRESS,
           price
         );
-        const adjustedGasLimit = (gasLimit * BigInt(12)) / BigInt(10);
+        console.log("Estimated Gas for Approval:", gasLimit);
 
+        // Add 20% buffer to gas limit
+        const adjustedGasLimit = (gasLimit * BigInt(20)) / BigInt(10);
+        console.log("Estimated Gas for Approval:", adjustedGasLimit);
+
+        // Execute approval with gas limit
         const approveTx = await tokenContract.approve(FACTORY_ADDRESS, price, {
-          gasLimit: adjustedGasLimit,
+          gasLimit: 300000n,
         });
+        console.log("Approval Transaction Hash:", approveTx.hash);
         await approveTx.wait();
+        console.log("Approval Confirmed");
       }
 
-      const tx = await factoryContract.purchaseAccess(
+      // Get gas estimate for purchase
+      const gasLimit = await factoryContract.purchaseAccess.estimateGas(
         datasetId,
         accessTypeMap[accessType],
         { value }
       );
+      console.log("Estimated Gas for Purchase:", gasLimit);
+
+      // Add 20% buffer to gas limit
+      const adjustedGasLimit = (gasLimit * BigInt(12)) / BigInt(10);
+
+      const tx = await factoryContract.purchaseAccess(
+        datasetId,
+        accessTypeMap[accessType],
+        {
+          value,
+          gasLimit: adjustedGasLimit,
+        }
+      );
+      console.log("Purchase Transaction Hash:", tx.hash);
       await tx.wait();
+      console.log("Purchase Confirmed");
 
       await loadDatasets();
     } catch (error) {
       console.error("Failed to purchase access:", error);
+      console.error("Error details:", {
+        message: error.message,
+        reason: error.reason,
+      });
       alert("Failed to purchase access: " + (error.reason || error.message));
     } finally {
       setLoading(false);
     }
   };
-  
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
       <nav className="border-b border-gray-700 bg-gray-900/50 backdrop-blur-sm">
