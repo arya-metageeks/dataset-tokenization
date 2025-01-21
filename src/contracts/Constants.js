@@ -1,14 +1,14 @@
 // export const FACTORY_ADDRESS = '0xbF9cE208649Db0401977b362E235f87F36EF8b05';
 // export const NFT_ADDRESS = '0x7CdaC93Cbc2A332Fe0330294B2FE134584854040';
 
-export const FACTORY_ADDRESS = '0x345d746dc9aB2655345EfA0c4a96964691431cD3';
-export const NFT_ADDRESS = '0x211f2b9d86C4c5e72C68DC63Bd30f40f38EEf07a';
-export const CLUSTER_ADDRESS = "0xb27a5d59255a65BEd9f21CB5e2499Cc8D5759b3e";
+export const FACTORY_ADDRESS = '0x70972322Ef49eDb6E11B77fA118EAcD499551da6';
+export const NFT_ADDRESS = '0xe44307E2B214C563506fDd354918B72030c653f1';
+export const CLUSTER_ADDRESS = "0x873305C238A138Ca25d602A2ADceF583dbeCacEe";
 export const USDT_ADDRESS = "0x01f83Ee1FFC925c45AF7e307CDa248fFd3EF00A7";
 
 
 // Import ABIs
-export const FACTORY_ABI = [
+export const FACTORY_ABI =  [
   {
     "inputs": [],
     "stateMutability": "nonpayable",
@@ -173,6 +173,44 @@ export const FACTORY_ABI = [
       }
     ],
     "name": "DatasetCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "datasetId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newPrice",
+        "type": "uint256"
+      }
+    ],
+    "name": "FullBuyPriceUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "datasetId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "buyer",
+        "type": "address"
+      }
+    ],
+    "name": "FullDatasetPurchased",
     "type": "event"
   },
   {
@@ -365,11 +403,6 @@ export const FACTORY_ABI = [
         "type": "string"
       },
       {
-        "internalType": "uint256",
-        "name": "expiryDuration",
-        "type": "uint256"
-      },
-      {
         "internalType": "enum PaymentMode",
         "name": "paymentMode",
         "type": "uint8"
@@ -385,16 +418,43 @@ export const FACTORY_ABI = [
             "internalType": "uint256",
             "name": "d2cAccessPrice",
             "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "expiryAccessPrice",
-            "type": "uint256"
           }
         ],
         "internalType": "struct PriceInfo",
         "name": "prices",
         "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "price",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiryDays",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ExpiryTier[]",
+        "name": "_expiryTiers",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_fullBuyPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "_customTokenEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "_fullBuyEnabled",
+        "type": "bool"
       },
       {
         "internalType": "uint256",
@@ -440,11 +500,6 @@ export const FACTORY_ABI = [
       },
       {
         "internalType": "uint256",
-        "name": "expiryDuration",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
         "name": "version",
         "type": "uint256"
       },
@@ -474,16 +529,26 @@ export const FACTORY_ABI = [
             "internalType": "uint256",
             "name": "d2cAccessPrice",
             "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "expiryAccessPrice",
-            "type": "uint256"
           }
         ],
         "internalType": "struct PriceInfo",
         "name": "prices",
         "type": "tuple"
+      },
+      {
+        "internalType": "uint256",
+        "name": "fullBuyPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "customTokenEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "fullBuyEnabled",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -570,6 +635,19 @@ export const FACTORY_ABI = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "datasetId",
+        "type": "uint256"
+      }
+    ],
+    "name": "purchaseFullDataset",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
@@ -647,6 +725,24 @@ export const FACTORY_ABI = [
       }
     ],
     "name": "updateDatasetURI",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "datasetId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "newPrice",
+        "type": "uint256"
+      }
+    ],
+    "name": "updateFullBuyPrice",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

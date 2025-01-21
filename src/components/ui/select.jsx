@@ -1,19 +1,12 @@
 // components/ui/select.jsx
-import React from "react";
+import React from 'react';
 
-export const Select = ({ 
-  value, 
-  onChange, 
-  children, 
-  className = "", 
-  ...props 
-}) => {
+export const Select = ({ value, onChange, children, className = '' }) => {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`w-full bg-gray-700 text-white border border-gray-600 rounded p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${className}`}
-      {...props}
+      className={`w-full p-2 rounded-md bg-gray-700 border border-gray-600 text-white ${className}`}
     >
       {children}
     </select>
@@ -21,5 +14,7 @@ export const Select = ({
 };
 
 export const SelectItem = ({ value, children }) => {
-  return <option value={value}>{children}</option>;
-};  
+  return (
+    <option value={value}>{children}</option>
+  );
+};

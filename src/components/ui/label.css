@@ -1,0 +1,24 @@
+/* ui/label.css */
+.custom-label {
+    font-size: 14px;
+    color: #e5e7eb;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  
+  .custom-label.disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  
+  .required-asterisk {
+    color: #ef4444;
+    margin-left: 2px;
+  }
+  
+  /* Add hover effect when not disabled */
+  .custom-label:not(.disabled):hover {
+    color: #f3f4f6;
+  }

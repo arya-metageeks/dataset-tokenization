@@ -1,25 +1,29 @@
-/* global BigInt */
-
 import { useState } from "react";
-import { Contract, parseEther } from "ethers";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Contract } from "ethers";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 
 export function DatasetCard({
   dataset,
   onPurchaseAccess,
+  onPurchaseFullDataset,
   loading,
   tokenAbi,
   signer,
+  nftContract, // Add NFT contract
   isOwner = false,
 }) {
   const [selectedAccess, setSelectedAccess] = useState("full");
-  const [tokenBalance, setTokenBalance] = useState("0");
-  const [transferAmount, setTransferAmount] = useState("");
   const [transferAddress, setTransferAddress] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
+  const [showTransferForm, setShowTransferForm] = useState(false);
 
   const PaymentMode = {
     ETH: 0,
@@ -29,7 +33,7 @@ export function DatasetCard({
   };
 
   const getPaymentLabel = () => {
-    switch (parseInt(dataset.paymentMode)) {
+    switch (Number(dataset.paymentMode)) {
       case PaymentMode.ETH:
         return "ETH";
       case PaymentMode.USDT:
@@ -43,67 +47,15 @@ export function DatasetCard({
     }
   };
 
-  const handleTransferTokens = async () => {
-    try {
-      if (!signer) {
-        alert("Please connect your wallet first");
-        return;
-      }
-
-      if (!tokenAbi) {
-        console.error("Token ABI is missing");
-        alert("Configuration error: Token ABI is missing");
-        return;
-      }
-
-      setTransferLoading(true);
-
-      // Only proceed if it's a custom token dataset
-      if (dataset.paymentMode === BigInt(3) && dataset.customTokenAddress) {
-        console.log("Creating contract with:", {
-          address: dataset.customTokenAddress,
-          abi: tokenAbi,
-          signer: signer,
-        });
-
-        const tokenContract = new Contract(
-          dataset.customTokenAddress,
-          tokenAbi,
-          signer
-        );
-
-        // Parse amount with 18 decimals (for ERC20)
-        const amount = parseEther(transferAmount);
-
-        const tx = await tokenContract.transfer(transferAddress, amount);
-        await tx.wait();
-
-        // Clear form
-        setTransferAmount("");
-        setTransferAddress("");
-        alert("Tokens transferred successfully!");
-      }
-    } catch (error) {
-      console.error("Transfer failed:", error);
-      // More detailed error logging
-      console.log("Error details:", {
-        paymentMode: dataset.paymentMode,
-        customTokenAddress: dataset.customTokenAddress,
-        hasAbi: !!tokenAbi,
-        hasSigner: !!signer,
-        error: error,
-      });
-      alert("Failed to transfer tokens: " + (error.reason || error.message));
-    } finally {
-      setTransferLoading(false);
-    }
+  const handleAccessModeChange = (e) => {
+    setSelectedAccess(e.target.value);
   };
+
   const handlePurchase = async () => {
     if (!signer) {
       alert("Please connect your wallet first");
       return;
     }
-
     try {
       onPurchaseAccess(dataset.id, selectedAccess);
     } catch (error) {
@@ -112,25 +64,103 @@ export function DatasetCard({
     }
   };
 
+  const handleTransferDataset = async () => {
+    if (!signer || !nftContract || !transferAddress) return;
+
+    try {
+      setTransferLoading(true);
+
+      // First approve the transfer
+      const approveTx = await nftContract.approve(transferAddress, dataset.id);
+      await approveTx.wait();
+
+      // Then transfer the NFT
+      const transferTx = await nftContract[
+        "safeTransferFrom(address,address,uint256)"
+      ](await signer.getAddress(), transferAddress, dataset.id);
+      await transferTx.wait();
+
+      setTransferAddress("");
+      setShowTransferForm(false);
+      alert("Dataset transferred successfully!");
+
+      // You might want to refresh the dataset list here
+      window.location.reload();
+    } catch (error) {
+      console.error("Transfer failed:", error);
+      alert("Failed to transfer dataset: " + (error.reason || error.message));
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
   return (
     <Card className="bg-gray-800/50 border-gray-700">
       <CardHeader>
         <div className="flex justify-between items-start text-white">
           <CardTitle className="text-lg">{dataset.name}</CardTitle>
-          <div className="flex flex-col items-end text-white">
+          <div className="flex flex-col items-end gap-1">
             <Badge>{dataset.active ? "Active" : "Inactive"}</Badge>
-            <Badge variant="outline" className="text-white">
-              {getPaymentLabel()}
-            </Badge>
+            <Badge variant="outline">{getPaymentLabel()}</Badge>
+            {dataset.version && (
+              <Badge variant="outline">v{dataset.version}</Badge>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           <p className="text-sm text-gray-300">{dataset.description}</p>
+          <p className="text-sm text-gray-300">URI: {dataset.uri}</p>
 
-          {/* Show prices and purchase options only if not owner */}
-          {!isOwner && (
+          {isOwner ? (
+            <div className="space-y-3">
+              {!showTransferForm ? (
+                <Button
+                  onClick={() => setShowTransferForm(true)}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Transfer Dataset
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    type="text"
+                    placeholder="Recipient Address"
+                    value={transferAddress}
+                    onChange={(e) => setTransferAddress(e.target.value)}
+                    className="bg-gray-700 text-white"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleTransferDataset}
+                      disabled={!transferAddress || transferLoading}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {transferLoading ? "Transferring..." : "Confirm Transfer"}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowTransferForm(false);
+                        setTransferAddress("");
+                      }}
+                      className="bg-gray-600 hover:bg-gray-700 text-white"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {dataset.customTokenEnabled && dataset.customTokenAddress && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="text-sm text-gray-400">
+                    <p>Token Address: {dataset.customTokenAddress}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
             <>
               <div className="space-y-2 text-white">
                 <div className="flex justify-between items-center">
@@ -145,19 +175,37 @@ export function DatasetCard({
                     {dataset.prices.d2cAccessPrice} {getPaymentLabel()}
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span>Expiry Access:</span>
-                  <span>
-                    {dataset.prices.expiryAccessPrice} {getPaymentLabel()}
-                  </span>
-                </div>
+                {dataset.expiryTiers?.map((tier, index) => (
+                  <div
+                    key={index}
+                    className="flex justify-between items-center"
+                  >
+                    <span>{tier.expiryDays} Days Access:</span>
+                    <span>
+                      {tier.price} {getPaymentLabel()}
+                    </span>
+                  </div>
+                ))}
+                {dataset.fullBuyEnabled && (
+                  <div className="flex justify-between items-center font-bold">
+                    <span>Full Dataset Purchase:</span>
+                    <div className="text-right">
+                      <span>
+                        {dataset.fullBuyPrice} {getPaymentLabel()}
+                      </span>
+                      <div className="text-xs text-gray-400">
+                        Payment Mode: {getPaymentLabel()}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col space-y-2">
                 <select
                   value={selectedAccess}
-                  onChange={(e) => setSelectedAccess(e.target.value)}
-                  className="bg-gray-700 text-white border border-gray-600 rounded p-2"
+                  onChange={handleAccessModeChange}
+                  className="w-full p-2 rounded-md bg-gray-700 border border-gray-600 text-white"
                 >
                   <option value="full">Full Access</option>
                   <option value="d2c">D2C Access</option>
@@ -171,50 +219,20 @@ export function DatasetCard({
                 >
                   {loading
                     ? "Processing..."
-                    : `Purchase with ${getPaymentLabel()}`}
+                    : `Purchase Access with ${getPaymentLabel()}`}
                 </Button>
+
+                {dataset.fullBuyEnabled && (
+                  <Button
+                    onClick={() => onPurchaseFullDataset(dataset.id)}
+                    disabled={loading}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {loading ? "Processing..." : `Purchase Full Dataset`}
+                  </Button>
+                )}
               </div>
             </>
-          )}
-
-          {/* Show token transfer section only if owner and it's a custom token dataset */}
-          {isOwner && dataset.paymentMode === BigInt(3) && (
-            <div className="space-y-3 border-t border-gray-700 pt-3">
-              <h3 className="text-sm font-medium text-white">
-                Transfer Custom Tokens
-              </h3>
-
-              <Input
-                type="text"
-                placeholder="Recipient Address"
-                value={transferAddress}
-                onChange={(e) => setTransferAddress(e.target.value)}
-                className="bg-gray-700 text-white"
-              />
-
-              <Input
-                type="number"
-                step="0.000000000000000001"
-                placeholder="Amount"
-                value={transferAmount}
-                onChange={(e) => setTransferAmount(e.target.value)}
-                className="bg-gray-700 text-white"
-              />
-
-              <Button
-                onClick={handleTransferTokens}
-                disabled={
-                  !transferAddress || !transferAmount || transferLoading
-                }
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                {transferLoading ? "Transferring..." : "Transfer Tokens"}
-              </Button>
-
-              <div className="text-sm text-gray-400">
-                Token Address: {dataset.customTokenAddress}
-              </div>
-            </div>
           )}
         </div>
       </CardContent>

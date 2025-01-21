@@ -19,16 +19,26 @@ import {
 } from "../contracts/Constants";
 import { DatasetCard } from "./DatasetCard";
 import { CreateDatasetForm } from "./CreateDataset";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Badge } from "./ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "../components/ui/tabs";
 
 const DatasetNFTDApp = () => {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [factoryContract, setFactoryContract] = useState(null);
+  const [nftContract, setNftContract] = useState(null);
   const [account, setAccount] = useState(null);
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,10 +50,14 @@ const DatasetNFTDApp = () => {
     description: "",
     uri: "",
     paymentMode: "0",
-    fullAccessPrice: "",
-    d2cAccessPrice: "",
-    expiryAccessPrice: "",
-    expiryDuration: "",
+    prices: {
+      fullAccessPrice: "",
+      d2cAccessPrice: "",
+    },
+    expiryTiers: [],
+    fullBuyPrice: "",
+    customTokenEnabled: false,
+    fullBuyEnabled: false,
     customTokenSupply: "",
   });
 
@@ -54,14 +68,17 @@ const DatasetNFTDApp = () => {
           const browserProvider = new BrowserProvider(window.ethereum);
           const signer = await browserProvider.getSigner();
           const contract = new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
+          const nftContractInstance = new Contract(
+            NFT_ADDRESS,
+            NFT_ABI,
+            signer
+          );
 
           setProvider(browserProvider);
           setSigner(signer);
           setFactoryContract(contract);
-
-          const address = await signer.getAddress();
-          setAccount(address);
-
+          setNftContract(nftContractInstance);
+          setAccount(await signer.getAddress());
           setLoading(false);
         } catch (error) {
           console.error("Error initializing:", error);
@@ -83,85 +100,79 @@ const DatasetNFTDApp = () => {
       const userAccessibleDatasets = [];
 
       for (let i = 1; i <= datasetCount; i++) {
-        const dataset = await factoryContract.datasets(i);
-        if (dataset.active) {
-          const formattedDataset = {
-            id: i,
-            name: dataset.name,
-            description: dataset.description,
-            uri: dataset.uri,
-            version: dataset.version.toString(),
-            active: dataset.active,
-            paymentMode: dataset.paymentMode,
-            customTokenAddress: dataset.customTokenAddress,
-            prices: {
-              fullAccessPrice: formatUnits(
-                dataset.prices.fullAccessPrice,
-                dataset.paymentMode === BigInt(1) ? 6 : 18
+        try {
+          const dataset = await factoryContract.datasets(i);
+          if (dataset.active) {
+            const formattedDataset = {
+              id: i,
+              name: dataset.name || "",
+              description: dataset.description || "",
+              uri: dataset.uri || "",
+              version: dataset.version?.toString() || "1",
+              active: dataset.active || false,
+              paymentMode: Number(dataset.paymentMode) || 0,
+              customTokenAddress: dataset.customTokenAddress || "",
+              prices: {
+                fullAccessPrice: formatUnits(
+                  dataset.prices?.fullAccessPrice || 0,
+                  Number(dataset.paymentMode) === 1 ? 6 : 18
+                ),
+                d2cAccessPrice: formatUnits(
+                  dataset.prices?.d2cAccessPrice || 0,
+                  Number(dataset.paymentMode) === 1 ? 6 : 18
+                ),
+              },
+              expiryTiers: Array.isArray(dataset.expiryTiers)
+                ? dataset.expiryTiers.map((tier) => ({
+                    price: formatUnits(
+                      tier.price || 0,
+                      Number(dataset.paymentMode) === 1 ? 6 : 18
+                    ),
+                    expiryDays: (tier.expiryDays || 0).toString(),
+                  }))
+                : [],
+              fullBuyPrice: formatUnits(
+                dataset.fullBuyPrice || 0,
+                Number(dataset.paymentMode) === 1 ? 6 : 18
               ),
-              d2cAccessPrice: formatUnits(
-                dataset.prices.d2cAccessPrice,
-                dataset.paymentMode === BigInt(1) ? 6 : 18
-              ),
-              expiryAccessPrice: formatUnits(
-                dataset.prices.expiryAccessPrice,
-                dataset.paymentMode === BigInt(1) ? 6 : 18
-              ),
-            },
-            expiryDuration: dataset.expiryDuration.toString(),
-          };
-
-          loadedDatasets.push(formattedDataset);
-
-          try {
-            const nftContract = new Contract(NFT_ADDRESS, NFT_ABI, provider);
-            const owner = await nftContract.ownerOf(i);
-            if (owner.toLowerCase() === account.toLowerCase()) {
-              userOwnedDatasets.push(formattedDataset);
-            }
-          } catch (error) {
-            console.error(
-              `Error checking NFT ownership for dataset ${i}:`,
-              error
-            );
-          }
-
-          try {
-            const [hasAccess, accessType] = await factoryContract.checkAccess(
-              account,
-              i
-            );
-
-            const getAccessTypeName = (accessType) => {
-              switch (Number(accessType)) {
-                case 0:
-                  return "None";
-                case 1:
-                  return "Expiry";
-                case 2:
-                  return "D2C";
-                case 3:
-                  return "Full";
-                default:
-                  return "Unknown";
-              }
+              customTokenEnabled: dataset.customTokenEnabled || false,
+              fullBuyEnabled: dataset.fullBuyEnabled || false,
             };
 
-            console.log(`Dataset ${i} - Has Access:`, hasAccess);
-            console.log(
-              `Dataset ${i} - Access Type:`,
-              getAccessTypeName(accessType)
-            );
+            loadedDatasets.push(formattedDataset);
 
-            if (hasAccess) {
-              userAccessibleDatasets.push({
-                ...formattedDataset,
-                accessType: getAccessTypeName(accessType),
-              });
+            try {
+              const owner = await nftContract.ownerOf(i);
+              if (owner.toLowerCase() === account.toLowerCase()) {
+                userOwnedDatasets.push(formattedDataset);
+              }
+            } catch (error) {
+              console.error(
+                `Error checking NFT ownership for dataset ${i}:`,
+                error
+              );
             }
-          } catch (error) {
-            console.error(`Error checking access for dataset ${i}:`, error);
+
+            try {
+              const [hasAccess, accessType] = await factoryContract.checkAccess(
+                account,
+                i
+              );
+              if (hasAccess) {
+                userAccessibleDatasets.push({
+                  ...formattedDataset,
+                  accessType:
+                    ["None", "Expiry", "D2C", "Full"][Number(accessType)] ||
+                    "None",
+                });
+              }
+            } catch (error) {
+              console.error(`Error checking access for dataset ${i}:`, error);
+            }
           }
+        } catch (error) {
+          console.error(`Error loading dataset ${i}:`, error);
+          continue;
         }
       }
 
@@ -187,12 +198,13 @@ const DatasetNFTDApp = () => {
       const browserProvider = new BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const address = await signer.getAddress();
+      const contract = new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
+      const nftContractInstance = new Contract(NFT_ADDRESS, NFT_ABI, signer);
 
       setSigner(signer);
       setAccount(address);
-
-      const contract = new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
       setFactoryContract(contract);
+      setNftContract(nftContractInstance);
     } catch (err) {
       console.error("Failed to connect wallet:", err);
     }
@@ -202,44 +214,84 @@ const DatasetNFTDApp = () => {
     try {
       setLoading(true);
 
-      // Parse prices based on payment mode
       const decimals = formDataToSubmit.paymentMode === "1" ? 6 : 18;
       const prices = {
-        fullAccessPrice: parseUnits(formDataToSubmit.fullAccessPrice, decimals),
-        d2cAccessPrice: parseUnits(formDataToSubmit.d2cAccessPrice, decimals),
-        expiryAccessPrice: parseUnits(
-          formDataToSubmit.expiryAccessPrice,
+        fullAccessPrice: parseUnits(
+          formDataToSubmit.prices.fullAccessPrice.toString(),
+          decimals
+        ),
+        d2cAccessPrice: parseUnits(
+          formDataToSubmit.prices.d2cAccessPrice.toString(),
           decimals
         ),
       };
 
-      // Log the parameters for debugging
-      console.log("Creating dataset with params:", {
-        name: formDataToSubmit.name,
-        description: formDataToSubmit.description,
-        uri: formDataToSubmit.uri,
-        expiryDuration: Number(formDataToSubmit.expiryDuration) * 24 * 60 * 60,
-        paymentMode: parseInt(formDataToSubmit.paymentMode),
-        prices,
-        customTokenSupply:
-          formDataToSubmit.paymentMode === "3"
-            ? parseEther(formDataToSubmit.customTokenSupply)
-            : 0,
-      });
+      const expiryTiers = (formDataToSubmit.expiryTiers || []).map((tier) => ({
+        price: parseUnits(tier.price.toString(), decimals),
+        expiryDays: tier.expiryDays,
+      }));
 
+      // Create dataset
       const tx = await factoryContract.createDataset(
         formDataToSubmit.name,
         formDataToSubmit.description,
         formDataToSubmit.uri,
-        Number(formDataToSubmit.expiryDuration) * 24 * 60 * 60,
-        parseInt(formDataToSubmit.paymentMode),
+        formDataToSubmit.paymentMode,
         prices,
+        expiryTiers,
+        parseUnits(formDataToSubmit.fullBuyPrice.toString(), decimals),
+        formDataToSubmit.customTokenEnabled,
+        formDataToSubmit.fullBuyEnabled,
         formDataToSubmit.paymentMode === "3"
-          ? parseEther(formDataToSubmit.customTokenSupply)
+          ? parseUnits(formDataToSubmit.customTokenSupply.toString(), 18)
           : 0
       );
 
-      await tx.wait();
+      const receipt = await tx.wait();
+
+      // Get the dataset ID from the creation event
+      // const createEvent = receipt.events?.find(
+      //   (event) => event.event === "DatasetCreated"
+      // );
+
+      const createEvent = receipt.logs
+        .map((log) => {
+          try {
+            return factoryContract.interface.parseLog(log);
+          } catch (error) {
+            console.log("Could not parse log:", log);
+            return null;
+          }
+        })
+        .filter((event) => event && event.name === "DatasetCreated");
+
+      const event = createEvent[0];
+      const datasetId = event.args[0];
+
+      console.log("createEvent", createEvent);
+      console.log("createEvent ard", datasetId);
+
+      // const datasetId = createEvent?.args?.datasetId;
+      console.log("DATASET-ID:", datasetId);
+
+      // If fullBuy is enabled, request approval for NFT transfer
+      if (formDataToSubmit.fullBuyEnabled && datasetId) {
+        try {
+          // Approve only the specific NFT
+          const approveTx = await nftContract.approve(
+            FACTORY_ADDRESS,
+            datasetId
+          );
+          await approveTx.wait();
+          console.log("NFT approval granted for dataset:", datasetId);
+        } catch (approvalError) {
+          console.error("Failed to approve NFT transfer:", approvalError);
+          alert(
+            "Dataset created but NFT transfer approval failed. You'll need to approve transfers before anyone can purchase the full dataset."
+          );
+        }
+      }
+
       await loadDatasets();
 
       // Reset form
@@ -248,51 +300,28 @@ const DatasetNFTDApp = () => {
         description: "",
         uri: "",
         paymentMode: "0",
-        fullAccessPrice: "",
-        d2cAccessPrice: "",
-        expiryAccessPrice: "",
-        expiryDuration: "",
+        prices: {
+          fullAccessPrice: "",
+          d2cAccessPrice: "",
+        },
+        expiryTiers: [],
+        fullBuyPrice: "",
+        customTokenEnabled: false,
+        fullBuyEnabled: false,
         customTokenSupply: "",
       });
+
+      alert(
+        "Dataset created successfully!" +
+          (formDataToSubmit.fullBuyEnabled
+            ? " Full dataset purchase has been enabled."
+            : "")
+      );
     } catch (err) {
       console.error("Failed to create dataset:", err);
-      // Add more detailed error logging
-      console.log("Error details:", {
-        message: err.message,
-        code: err.code,
-        data: err.data,
-      });
+      alert("Failed to create dataset: " + (err.reason || err.message));
     } finally {
       setLoading(false);
-    }
-  };
-  const getPrice = (dataset, accessType) => {
-    // Get the base price amount
-    let price;
-    switch (accessType) {
-      case "full":
-        price = dataset.prices.fullAccessPrice;
-        break;
-      case "d2c":
-        price = dataset.prices.d2cAccessPrice;
-        break;
-      case "expiry":
-        price = dataset.prices.expiryAccessPrice;
-        break;
-      default:
-        return 0;
-    }
-
-    // Convert based on payment mode
-    if (dataset.paymentMode === BigInt(0)) {
-      // ETH
-      return parseEther(price.toString());
-    } else if (dataset.paymentMode === BigInt(1)) {
-      // USDT
-      return parseUnits(price.toString(), 6); // USDT uses 6 decimals
-    } else {
-      // CLUSTER or Custom Token (using 18 decimals)
-      return parseEther(price.toString());
     }
   };
 
@@ -308,43 +337,32 @@ const DatasetNFTDApp = () => {
         expiry: 1,
       };
 
-      let value = 0;
-      if (dataset.paymentMode === BigInt(0)) {
-        value = getPrice(dataset, accessType);
-        console.log("ETH Value:", value);
-      } else {
+      const price =
+        accessType === "full"
+          ? dataset.prices.fullAccessPrice
+          : accessType === "d2c"
+          ? dataset.prices.d2cAccessPrice
+          : dataset.expiryTiers[0]?.price || "0";
+
+      const value =
+        dataset.paymentMode === 0 ? parseEther(price.toString()) : 0;
+
+      if (dataset.paymentMode !== 0) {
         const tokenAddress =
-          dataset.paymentMode === BigInt(1)
+          dataset.paymentMode === 1
             ? USDT_ADDRESS
-            : dataset.paymentMode === BigInt(2)
+            : dataset.paymentMode === 2
             ? CLUSTER_ADDRESS
             : dataset.customTokenAddress;
 
-        console.log("Token Address:", tokenAddress);
         const tokenContract = new Contract(tokenAddress, TOKEN_ABI, signer);
-        const price = getPrice(dataset, accessType);
-        console.log("Token Price:", price.toString());
+        const decimals = dataset.paymentMode === 1 ? 6 : 18;
+        const tokenAmount = parseUnits(price.toString(), decimals);
 
-        // Get user's token balance
-        const balance = await tokenContract.balanceOf(
-          await signer.getAddress()
-        );
-        console.log("User Token Balance:", balance.toString());
-
-        if (balance < price) {
-          throw new Error("Insufficient token balance");
-        }
-
-        // Add gas estimation
-        const gasLimit = await tokenContract.approve.estimateGas(
+        const approveTx = await tokenContract.approve(
           FACTORY_ADDRESS,
-          price
+          tokenAmount
         );
-        const adjustedGasLimit = (gasLimit * BigInt(12)) / BigInt(10);
-
-        const approveTx = await tokenContract.approve(FACTORY_ADDRESS, price, {
-          gasLimit: adjustedGasLimit,
-        });
         await approveTx.wait();
       }
 
@@ -354,7 +372,6 @@ const DatasetNFTDApp = () => {
         { value }
       );
       await tx.wait();
-
       await loadDatasets();
     } catch (error) {
       console.error("Failed to purchase access:", error);
@@ -363,7 +380,150 @@ const DatasetNFTDApp = () => {
       setLoading(false);
     }
   };
-  
+
+  const handleFullDatasetPurchase = async (datasetId) => {
+    try {
+      setLoading(true);
+      const dataset = datasets.find((d) => d.id === datasetId);
+      if (!dataset) return;
+
+      // Debug logs
+      console.log("Purchasing dataset:", {
+        id: datasetId,
+        paymentMode: dataset.paymentMode,
+        fullBuyPrice: dataset.fullBuyPrice,
+        fullBuyEnabled: dataset.fullBuyEnabled,
+      });
+
+      // Check if full buy is enabled
+      if (!dataset.fullBuyEnabled) {
+        alert("Full buy is not enabled for this dataset");
+        return;
+      }
+
+      const value =
+        dataset.paymentMode === 0
+          ? parseEther(dataset.fullBuyPrice.toString())
+          : BigInt(0);
+
+      // Handle token payments
+      if (dataset.paymentMode !== 0) {
+        const tokenAddress =
+          dataset.paymentMode === 1
+            ? USDT_ADDRESS
+            : dataset.paymentMode === 2
+            ? CLUSTER_ADDRESS
+            : dataset.customTokenAddress;
+
+        console.log("Token payment setup:", {
+          tokenAddress,
+          amount: dataset.fullBuyPrice,
+          factoryAddress: FACTORY_ADDRESS,
+        });
+
+        const tokenContract = new Contract(tokenAddress, TOKEN_ABI, signer);
+        const decimals = dataset.paymentMode === 1 ? 6 : 18;
+        const tokenAmount = parseUnits(
+          dataset.fullBuyPrice.toString(),
+          decimals
+        );
+
+        // Check allowance first
+        const currentAllowance = await tokenContract.allowance(
+          await signer.getAddress(),
+          FACTORY_ADDRESS
+        );
+        console.log("Current allowance:", currentAllowance.toString());
+
+        if (currentAllowance < tokenAmount) {
+          const approveTx = await tokenContract.approve(
+            FACTORY_ADDRESS,
+            tokenAmount
+          );
+          await approveTx.wait();
+        }
+
+        // Check balance
+        const balance = await tokenContract.balanceOf(
+          await signer.getAddress()
+        );
+        console.log("Token balance:", balance.toString());
+        if (balance < tokenAmount) {
+          alert("Insufficient token balance");
+          return;
+        }
+      }
+
+      // Get owner and check NFT approval status
+      const owner = await nftContract.ownerOf(datasetId);
+      const isApproved =
+        (await nftContract.getApproved(datasetId)) === FACTORY_ADDRESS;
+
+      if (!isApproved) {
+        if (owner.toLowerCase() === (await signer.getAddress()).toLowerCase()) {
+          try {
+            const approveTx = await nftContract.approve(
+              FACTORY_ADDRESS,
+              datasetId
+            );
+            await approveTx.wait();
+            console.log("NFT approved for transfer");
+          } catch (approvalError) {
+            console.error("Failed to approve NFT:", approvalError);
+            alert("Failed to approve NFT transfer. Please try again.");
+            return;
+          }
+        } else {
+          alert("Dataset not approved for transfer. Please contact the owner.");
+          return;
+        }
+      }
+
+      // Gas estimation
+      console.log(
+        "Estimating gas for dataset:",
+        datasetId,
+        "with value:",
+        value.toString()
+      );
+      const gasEstimate = await factoryContract.purchaseFullDataset.estimateGas(
+        datasetId,
+        { value }
+      );
+      console.log("Gas estimate:", gasEstimate.toString());
+
+      // Calculate gas limit using BigInt
+      const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100); // 120% of estimate
+
+      const tx = await factoryContract.purchaseFullDataset(datasetId, {
+        value,
+        gasLimit,
+      });
+
+      await tx.wait();
+      await loadDatasets();
+      alert("Dataset purchased successfully!");
+    } catch (error) {
+      console.error("Failed to purchase full dataset:", error);
+
+      if (error.message.includes("Dataset not approved")) {
+        alert("The dataset needs to be approved for transfer by the owner.");
+      } else if (error.message.includes("Incorrect ETH amount")) {
+        alert(
+          "Incorrect payment amount. Please check the price and try again."
+        );
+      } else if (error.message.includes("insufficient funds")) {
+        alert("Insufficient funds to complete the purchase.");
+      } else {
+        alert(
+          "Failed to purchase full dataset: " + (error.reason || error.message)
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
       <nav className="border-b border-gray-700 bg-gray-900/50 backdrop-blur-sm">
@@ -400,9 +560,12 @@ const DatasetNFTDApp = () => {
                   key={index}
                   dataset={dataset}
                   onPurchaseAccess={handleAccessPurchase}
+                  onPurchaseFullDataset={handleFullDatasetPurchase}
                   loading={loading}
                   tokenAbi={TOKEN_ABI}
                   signer={signer}
+                  nftContract={nftContract}
+                  onTransferComplete={loadDatasets}
                 />
               ))}
             </div>
@@ -427,6 +590,8 @@ const DatasetNFTDApp = () => {
                   loading={loading}
                   signer={signer}
                   tokenAbi={TOKEN_ABI}
+                  nftContract={nftContract}
+                  onTransferComplete={loadDatasets}
                 />
               ))}
             </div>
@@ -441,7 +606,16 @@ const DatasetNFTDApp = () => {
                       <CardTitle className="text-lg text-white">
                         {dataset.name}
                       </CardTitle>
-                      <Badge variant="secondary">{dataset.accessType}</Badge>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="secondary">{dataset.accessType}</Badge>
+                        <Badge variant="outline" className="text-white">
+                          {
+                            ["ETH", "USDT", "CLUSTER", "Custom Token"][
+                              dataset.paymentMode
+                            ]
+                          }
+                        </Badge>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -449,9 +623,15 @@ const DatasetNFTDApp = () => {
                       <p className="text-sm text-gray-300">
                         {dataset.description}
                       </p>
-                      <p className="text-sm text-gray-300">
-                        URI: {dataset.uri}
-                      </p>
+                      <div className="text-sm text-gray-300">
+                        <p>URI: {dataset.uri}</p>
+                        <p className="mt-2">Version: {dataset.version}</p>
+                      </div>
+                      {dataset.customTokenAddress && (
+                        <div className="text-sm text-gray-400 break-all">
+                          <p>Token Address: {dataset.customTokenAddress}</p>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
