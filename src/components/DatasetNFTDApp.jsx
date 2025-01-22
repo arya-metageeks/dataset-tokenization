@@ -1,3 +1,4 @@
+// DatasetNFTDApp.jsx
 /* global BigInt */
 import React, { useState, useEffect } from "react";
 import {
@@ -16,9 +17,12 @@ import {
   TOKEN_ABI,
   USDT_ADDRESS,
   CLUSTER_ADDRESS,
+  INFERENCE_ADDRESS,
+  INFERENCE_ABI,
 } from "../contracts/Constants";
 import { DatasetCard } from "./DatasetCard";
 import { CreateDatasetForm } from "./CreateDataset";
+import { InferenceRegistrationForm } from "./InferenceRegistrationForm";
 import {
   Card,
   CardHeader,
@@ -44,6 +48,11 @@ const DatasetNFTDApp = () => {
   const [loading, setLoading] = useState(true);
   const [userDatasets, setUserDatasets] = useState([]);
   const [accessibleDatasets, setAccessibleDatasets] = useState([]);
+  const [inferenceContract, setInferenceContract] = useState(null);
+  const [inferenceStats, setInferenceStats] = useState({
+    totalInferences: 0,
+    recentInferences: [],
+  });
 
   const [formData, setFormData] = useState({
     name: "",
@@ -73,11 +82,17 @@ const DatasetNFTDApp = () => {
             NFT_ABI,
             signer
           );
+          const inferenceContractInstance = new Contract(
+            INFERENCE_ADDRESS,
+            INFERENCE_ABI,
+            signer
+          );
 
           setProvider(browserProvider);
           setSigner(signer);
           setFactoryContract(contract);
           setNftContract(nftContractInstance);
+          setInferenceContract(inferenceContractInstance);
           setAccount(await signer.getAddress());
           setLoading(false);
         } catch (error) {
@@ -186,11 +201,34 @@ const DatasetNFTDApp = () => {
     }
   };
 
+  const loadRegisteredInferences = async (inferenceId) => {
+    if (!inferenceContract || !account) return;
+
+    try {
+      const inference = await inferenceContract.getInference(inferenceId);
+      const [id, modelType, timestamp] = inference;
+
+      setInferenceStats({
+        id: id.toString(),
+        modelType: Number(modelType),
+        timestamp: new Date(Number(timestamp) * 1000).toLocaleString(),
+      });
+    } catch (error) {
+      console.error(`Error loading inference ${inferenceId}:`, error);
+    }
+  };
+
   useEffect(() => {
     if (factoryContract && account) {
       loadDatasets();
     }
   }, [factoryContract, account]);
+
+  useEffect(() => {
+    if (inferenceContract && account) {
+      loadRegisteredInferences();
+    }
+  }, [inferenceContract, account]);
 
   const connectWallet = async () => {
     try {
@@ -200,11 +238,18 @@ const DatasetNFTDApp = () => {
       const address = await signer.getAddress();
       const contract = new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
       const nftContractInstance = new Contract(NFT_ADDRESS, NFT_ABI, signer);
+      const inferenceContractInstance = new Contract(
+        INFERENCE_ADDRESS,
+        INFERENCE_ABI,
+        signer
+      );
 
+      setProvider(browserProvider);
       setSigner(signer);
-      setAccount(address);
       setFactoryContract(contract);
       setNftContract(nftContractInstance);
+      setInferenceContract(inferenceContractInstance);
+      setAccount(address);
     } catch (err) {
       console.error("Failed to connect wallet:", err);
     }
@@ -231,7 +276,6 @@ const DatasetNFTDApp = () => {
         expiryDays: tier.expiryDays,
       }));
 
-      // Create dataset
       const tx = await factoryContract.createDataset(
         formDataToSubmit.name,
         formDataToSubmit.description,
@@ -249,11 +293,6 @@ const DatasetNFTDApp = () => {
 
       const receipt = await tx.wait();
 
-      // Get the dataset ID from the creation event
-      // const createEvent = receipt.events?.find(
-      //   (event) => event.event === "DatasetCreated"
-      // );
-
       const createEvent = receipt.logs
         .map((log) => {
           try {
@@ -268,22 +307,13 @@ const DatasetNFTDApp = () => {
       const event = createEvent[0];
       const datasetId = event.args[0];
 
-      console.log("createEvent", createEvent);
-      console.log("createEvent ard", datasetId);
-
-      // const datasetId = createEvent?.args?.datasetId;
-      console.log("DATASET-ID:", datasetId);
-
-      // If fullBuy is enabled, request approval for NFT transfer
       if (formDataToSubmit.fullBuyEnabled && datasetId) {
         try {
-          // Approve only the specific NFT
           const approveTx = await nftContract.approve(
             FACTORY_ADDRESS,
             datasetId
           );
           await approveTx.wait();
-          console.log("NFT approval granted for dataset:", datasetId);
         } catch (approvalError) {
           console.error("Failed to approve NFT transfer:", approvalError);
           alert(
@@ -294,7 +324,6 @@ const DatasetNFTDApp = () => {
 
       await loadDatasets();
 
-      // Reset form
       setFormData({
         name: "",
         description: "",
@@ -387,15 +416,6 @@ const DatasetNFTDApp = () => {
       const dataset = datasets.find((d) => d.id === datasetId);
       if (!dataset) return;
 
-      // Debug logs
-      console.log("Purchasing dataset:", {
-        id: datasetId,
-        paymentMode: dataset.paymentMode,
-        fullBuyPrice: dataset.fullBuyPrice,
-        fullBuyEnabled: dataset.fullBuyEnabled,
-      });
-
-      // Check if full buy is enabled
       if (!dataset.fullBuyEnabled) {
         alert("Full buy is not enabled for this dataset");
         return;
@@ -406,7 +426,6 @@ const DatasetNFTDApp = () => {
           ? parseEther(dataset.fullBuyPrice.toString())
           : BigInt(0);
 
-      // Handle token payments
       if (dataset.paymentMode !== 0) {
         const tokenAddress =
           dataset.paymentMode === 1
@@ -415,12 +434,6 @@ const DatasetNFTDApp = () => {
             ? CLUSTER_ADDRESS
             : dataset.customTokenAddress;
 
-        console.log("Token payment setup:", {
-          tokenAddress,
-          amount: dataset.fullBuyPrice,
-          factoryAddress: FACTORY_ADDRESS,
-        });
-
         const tokenContract = new Contract(tokenAddress, TOKEN_ABI, signer);
         const decimals = dataset.paymentMode === 1 ? 6 : 18;
         const tokenAmount = parseUnits(
@@ -428,12 +441,10 @@ const DatasetNFTDApp = () => {
           decimals
         );
 
-        // Check allowance first
         const currentAllowance = await tokenContract.allowance(
           await signer.getAddress(),
           FACTORY_ADDRESS
         );
-        console.log("Current allowance:", currentAllowance.toString());
 
         if (currentAllowance < tokenAmount) {
           const approveTx = await tokenContract.approve(
@@ -443,18 +454,15 @@ const DatasetNFTDApp = () => {
           await approveTx.wait();
         }
 
-        // Check balance
         const balance = await tokenContract.balanceOf(
           await signer.getAddress()
         );
-        console.log("Token balance:", balance.toString());
         if (balance < tokenAmount) {
           alert("Insufficient token balance");
           return;
         }
       }
 
-      // Get owner and check NFT approval status
       const owner = await nftContract.ownerOf(datasetId);
       const isApproved =
         (await nftContract.getApproved(datasetId)) === FACTORY_ADDRESS;
@@ -467,7 +475,6 @@ const DatasetNFTDApp = () => {
               datasetId
             );
             await approveTx.wait();
-            console.log("NFT approved for transfer");
           } catch (approvalError) {
             console.error("Failed to approve NFT:", approvalError);
             alert("Failed to approve NFT transfer. Please try again.");
@@ -479,21 +486,11 @@ const DatasetNFTDApp = () => {
         }
       }
 
-      // Gas estimation
-      console.log(
-        "Estimating gas for dataset:",
-        datasetId,
-        "with value:",
-        value.toString()
-      );
       const gasEstimate = await factoryContract.purchaseFullDataset.estimateGas(
         datasetId,
         { value }
       );
-      console.log("Gas estimate:", gasEstimate.toString());
-
-      // Calculate gas limit using BigInt
-      const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100); // 120% of estimate
+      const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100);
 
       const tx = await factoryContract.purchaseFullDataset(datasetId, {
         value,
@@ -519,6 +516,34 @@ const DatasetNFTDApp = () => {
           "Failed to purchase full dataset: " + (error.reason || error.message)
         );
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInferenceRegistration = async (formData) => {
+    try {
+      setLoading(true);
+
+      const gasEstimate = await inferenceContract.addInference.estimateGas(
+        formData.inferenceId,
+        parseInt(formData.modelType)
+      );
+      const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100);
+      console.log("gasLimit:", gasLimit);
+
+      const tx = await inferenceContract.addInference(
+        formData.inferenceId,
+        parseInt(formData.modelType),
+        { gasLimit: gasLimit }
+      );
+      await tx.wait();
+
+      await loadRegisteredInferences(formData.inferenceId);
+      alert("Inference registered successfully!");
+    } catch (error) {
+      console.error("Failed to register inference:", error);
+      alert("Failed to register inference: " + (error.reason || error.message));
     } finally {
       setLoading(false);
     }
@@ -551,6 +576,7 @@ const DatasetNFTDApp = () => {
             <TabsTrigger value="create">Create Dataset</TabsTrigger>
             <TabsTrigger value="owned">My Datasets</TabsTrigger>
             <TabsTrigger value="access">My Access</TabsTrigger>
+            <TabsTrigger value="inference">Register Inference</TabsTrigger>
           </TabsList>
 
           <TabsContent value="browse">
@@ -636,6 +662,68 @@ const DatasetNFTDApp = () => {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="inference">
+            <div className="max-w-4xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <InferenceRegistrationForm
+                    onSubmit={handleInferenceRegistration}
+                    loading={loading}
+                  />
+                </div>
+
+                <div>
+                  <Card className="bg-gray-800/50 border-gray-700">
+                    <CardHeader>
+                      <CardTitle className="text-xl font-bold text-white">
+                        Inference Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {inferenceStats.id ? (
+                        <div className="space-y-4">
+                          <div>
+                            <h3 className="text-lg font-medium text-white">
+                              Inference ID
+                            </h3>
+                            <p className="text-2xl font-bold text-blue-400">
+                              {inferenceStats.id}
+                            </p>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-medium text-white">
+                              Model Type
+                            </h3>
+                            <p className="text-xl text-gray-200">
+                              {
+                                ["Image", "Audio", "Other"][
+                                  inferenceStats.modelType
+                                ]
+                              }
+                            </p>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-medium text-white">
+                              Timestamp
+                            </h3>
+                            <p className="text-xl text-gray-200">
+                              {inferenceStats.timestamp}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-gray-400">
+                          No inference details available. Register an inference
+                          to see the details.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

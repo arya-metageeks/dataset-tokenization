@@ -31,6 +31,15 @@ module.exports = {
       confirmations: 2,
       // gasMultiplier: 1.2
     },
+
+    paradoxChain: {
+      url: "https://paradoxchain.rpc.caldera.xyz/http",
+      accounts: ["96084ec963b94053c4f6b44c370aaf64552accf551a78442dbdf022a9241499d"], 
+      chainId:  5302405,
+      timeout: 100000, // 60 seconds
+      confirmations: 2,
+      // gasMultiplier: 1.2
+    },
   },
   etherscan: {
     apiKey: {

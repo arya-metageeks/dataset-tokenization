@@ -80,6 +80,11 @@
       "address": "0x70972322Ef49eDb6E11B77fA118EAcD499551da6",
       "txHash": "0x432ae4df6fa154b21bf687db2fe3a91981391747f76a34cb6f498ede4f271b02",
       "kind": "uups"
+    },
+    {
+      "address": "0x034ECEb896961457358364bad150f0Ea15fCD61d",
+      "txHash": "0x3643b4b10df3cec59a8f8303a92312568e636cf9a2cc82250feb628bbf634704",
+      "kind": "uups"
     }
   ],
   "impls": {
@@ -1989,6 +1994,152 @@
               }
             ],
             "numberOfBytes": "64"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.Ownable": [
+            {
+              "contract": "OwnableUpgradeable",
+              "label": "_owner",
+              "type": "t_address",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
+    },
+    "3c597d3df3f458b0b4469e1b785570c8a51f8bd55d15f1f8ab04a46f608f35da": {
+      "address": "0x804c1417D77fc541fd0caC212a62695f176FA83F",
+      "txHash": "0x8f23563a821485ff44b5aa9603e795160076ccfaed5defddf34703489a4f7b25",
+      "layout": {
+        "solcVersion": "0.8.27",
+        "storage": [
+          {
+            "label": "inferenceRecords",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_mapping(t_uint256,t_struct(InferenceInfo)1441_storage)",
+            "contract": "InferenceRegistry",
+            "src": "contracts\\InferenceRegistry.sol:21"
+          },
+          {
+            "label": "_totalInferences",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256",
+            "contract": "InferenceRegistry",
+            "src": "contracts\\InferenceRegistry.sol:24"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_struct(InitializableStorage)73_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(OwnableStorage)13_storage": {
+            "label": "struct OwnableUpgradeable.OwnableStorage",
+            "members": [
+              {
+                "label": "_owner",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_enum(ModelType)1431": {
+            "label": "enum InferenceRegistry.ModelType",
+            "members": [
+              "IMAGE",
+              "AUDIO",
+              "OTHER"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_uint256,t_struct(InferenceInfo)1441_storage)": {
+            "label": "mapping(uint256 => struct InferenceRegistry.InferenceInfo)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(InferenceInfo)1441_storage": {
+            "label": "struct InferenceRegistry.InferenceInfo",
+            "members": [
+              {
+                "label": "id",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "modelType",
+                "type": "t_enum(ModelType)1431",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "timestamp",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "exists",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
           },
           "t_uint256": {
             "label": "uint256",
