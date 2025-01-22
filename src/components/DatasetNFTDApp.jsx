@@ -50,8 +50,11 @@ const DatasetNFTDApp = () => {
   const [accessibleDatasets, setAccessibleDatasets] = useState([]);
   const [inferenceContract, setInferenceContract] = useState(null);
   const [inferenceStats, setInferenceStats] = useState({
+    id: null,
+    modelType: null,
+    timestamp: null,
+    lastProcessedBatch: 0,
     totalInferences: 0,
-    recentInferences: [],
   });
 
   const [formData, setFormData] = useState({
@@ -205,16 +208,40 @@ const DatasetNFTDApp = () => {
     if (!inferenceContract || !account) return;
 
     try {
-      const inference = await inferenceContract.getInference(inferenceId);
-      const [id, modelType, timestamp] = inference;
+      // First fetch the general stats
+      const [totalInferences, lastProcessedBatch] = await Promise.all([
+        inferenceContract.getTotalInferences(),
+        inferenceContract.getLastProcessedBatch(),
+      ]);
 
-      setInferenceStats({
-        id: id.toString(),
-        modelType: Number(modelType),
-        timestamp: new Date(Number(timestamp) * 1000).toLocaleString(),
-      });
+      setInferenceStats((prev) => ({
+        ...prev,
+        totalInferences: totalInferences.toString(),
+        lastProcessedBatch: lastProcessedBatch.toString(),
+      }));
+
+      // Then fetch specific inference details if an ID is provided
+      if (inferenceId) {
+        try {
+          const inference = await inferenceContract.getInference(inferenceId);
+          const [id, modelType, timestamp] = inference;
+
+          setInferenceStats((prev) => ({
+            ...prev,
+            id: id.toString(),
+            modelType: Number(modelType),
+            timestamp: new Date(Number(timestamp) * 1000).toLocaleString(),
+          }));
+        } catch (error) {
+          console.error(
+            `Error loading specific inference ${inferenceId}:`,
+            error
+          );
+          // Don't update the specific inference stats if there's an error
+        }
+      }
     } catch (error) {
-      console.error(`Error loading inference ${inferenceId}:`, error);
+      console.error(`Error loading inference stats:`, error);
     }
   };
 
@@ -525,25 +552,69 @@ const DatasetNFTDApp = () => {
     try {
       setLoading(true);
 
-      const gasEstimate = await inferenceContract.addInference.estimateGas(
-        formData.inferenceId,
-        parseInt(formData.modelType)
-      );
+      // Check if it's a batch submission (array) or single submission (object)
+      const isBatch = Array.isArray(formData);
+      const inferenceIds = isBatch
+        ? formData.map((entry) => entry.inferenceId)
+        : [formData.inferenceId];
+      const modelTypes = isBatch
+        ? formData.map((entry) => parseInt(entry.modelType))
+        : [parseInt(formData.modelType)];
+
+      // Always use addMultipleInferences for consistency
+      const gasEstimate =
+        await inferenceContract.addMultipleInferences.estimateGas(
+          inferenceIds,
+          modelTypes
+        );
       const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100);
-      console.log("gasLimit:", gasLimit);
 
-      const tx = await inferenceContract.addInference(
-        formData.inferenceId,
-        parseInt(formData.modelType),
-        { gasLimit: gasLimit }
+      const tx = await inferenceContract.addMultipleInferences(
+        inferenceIds,
+        modelTypes,
+        { gasLimit }
       );
-      await tx.wait();
 
-      await loadRegisteredInferences(formData.inferenceId);
-      alert("Inference registered successfully!");
+      // Wait for transaction and get the receipt
+      const receipt = await tx.wait();
+
+      // Parse logs to get the batch information
+      const inferenceAddedEvents = receipt.logs
+        .map((log) => {
+          try {
+            return inferenceContract.interface.parseLog(log);
+          } catch (error) {
+            return null;
+          }
+        })
+        .filter((event) => event && event.name === "InferenceAdded");
+
+      // Refresh the stats
+      await loadRegisteredInferences(inferenceIds[inferenceIds.length - 1]);
+
+      console.log("inferenceStats",inferenceStats)
+      // Show success message with batch information
+      const message = isBatch
+        ? `Successfully registered ${
+            inferenceIds.length
+          } inferences in batch #${(inferenceStats.lastProcessedBatch) + 1}`
+        : "Inference registered successfully!";
+
+      alert(message);
     } catch (error) {
       console.error("Failed to register inference:", error);
-      alert("Failed to register inference: " + (error.reason || error.message));
+
+      if (error.message.includes("Duplicate ID")) {
+        alert(
+          "One or more inference IDs already exist. Please use unique IDs."
+        );
+      } else if (error.message.includes("Length mismatch")) {
+        alert("Invalid batch data structure. Please try again.");
+      } else {
+        alert(
+          "Failed to register inference: " + (error.reason || error.message)
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -671,7 +742,10 @@ const DatasetNFTDApp = () => {
                 <div>
                   <InferenceRegistrationForm
                     onSubmit={handleInferenceRegistration}
+                    onBatchSubmit={handleInferenceRegistration}
                     loading={loading}
+                    lastProcessedBatch={inferenceStats.lastProcessedBatch}
+                    totalInferences={inferenceStats.totalInferences}
                   />
                 </div>
 
@@ -679,47 +753,60 @@ const DatasetNFTDApp = () => {
                   <Card className="bg-gray-800/50 border-gray-700">
                     <CardHeader>
                       <CardTitle className="text-xl font-bold text-white">
-                        Inference Details
+                        Inference Stats
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {inferenceStats.id ? (
-                        <div className="space-y-4">
-                          <div>
-                            <h3 className="text-lg font-medium text-white">
-                              Inference ID
-                            </h3>
-                            <p className="text-2xl font-bold text-blue-400">
-                              {inferenceStats.id}
-                            </p>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-medium text-white">
-                              Model Type
-                            </h3>
-                            <p className="text-xl text-gray-200">
-                              {
-                                ["Image", "Audio", "Other"][
-                                  inferenceStats.modelType
-                                ]
-                              }
-                            </p>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-medium text-white">
-                              Timestamp
-                            </h3>
-                            <p className="text-xl text-gray-200">
-                              {inferenceStats.timestamp}
-                            </p>
-                          </div>
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-lg font-medium text-white">
+                            Total Inferences
+                          </h3>
+                          <p className="text-2xl font-bold text-blue-400">
+                            {inferenceStats.totalInferences}
+                          </p>
                         </div>
-                      ) : (
-                        <p className="text-gray-400">
-                          No inference details available. Register an inference
-                          to see the details.
-                        </p>
-                      )}
+                        <div>
+                          <h3 className="text-lg font-medium text-white">
+                            Current Batch
+                          </h3>
+                          <p className="text-2xl font-bold text-blue-400">
+                            #{inferenceStats.lastProcessedBatch}
+                          </p>
+                        </div>
+                        {inferenceStats.id && (
+                          <>
+                            <div>
+                              <h3 className="text-lg font-medium text-white">
+                                Latest Registered ID
+                              </h3>
+                              <p className="text-xl text-gray-200">
+                                {inferenceStats.id}
+                              </p>
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-medium text-white">
+                                Model Type
+                              </h3>
+                              <p className="text-xl text-white ">
+                                {
+                                  ["Image", "Audio", "Other"][
+                                    inferenceStats.modelType
+                                  ]
+                                }
+                              </p>
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-medium text-white">
+                                Timestamp
+                              </h3>
+                              <p className="text-xl text-gray-200">
+                                {inferenceStats.timestamp}
+                              </p>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </div>

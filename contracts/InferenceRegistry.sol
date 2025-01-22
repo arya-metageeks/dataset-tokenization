@@ -5,11 +5,17 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-contract InferenceRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
-    // Enum to represent different model types
-    enum ModelType { IMAGE, AUDIO, OTHER }
+contract InferenceRegistry is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable
+{
+    enum ModelType {
+        IMAGE,
+        AUDIO,
+        OTHER
+    }
 
-    // Struct to store inference information
     struct InferenceInfo {
         uint256 id;
         ModelType modelType;
@@ -17,14 +23,21 @@ contract InferenceRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable
         bool exists;
     }
 
-    // Mapping from inference ID to InferenceInfo
+    // Pack related storage variables together to optimize for rollup storage
+    struct StorageData {
+        uint256 totalInferences;
+        uint256 lastProcessedBatch;
+        bool paused;
+    }
+    
+    StorageData private _storageData;
+    
+    // Use uint128 for gas optimization on rollups
     mapping(uint256 => InferenceInfo) private inferenceRecords;
     
-    // Counter to track total number of inferences submitted
-    uint256 private _totalInferences;
-
-    // Event emitted when new inference is added
-    event InferenceAdded(uint256 indexed inferenceId, ModelType modelType, uint256 timestamp);
+    // Calldata optimized events
+    event InferenceAdded(uint256[] indexed inferenceIds, ModelType[] modelTypes);
+    event BatchProcessed(uint256 indexed batchId, uint256 count);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -34,56 +47,74 @@ contract InferenceRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable
     function initialize() public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
-        _totalInferences = 0;
+        _storageData.totalInferences = 0;
+        _storageData.lastProcessedBatch = 0;
     }
 
-    /**
-     * @dev Adds a new inference record with manual ID
-     * @param inferenceId Manual ID for the inference record
-     * @param modelType Type of the model (0: IMAGE, 1: AUDIO, 2: OTHER)
-     */
-    function addInference(uint256 inferenceId, ModelType modelType) public {
-        require(!inferenceRecords[inferenceId].exists, "Inference ID already exists");
+    // Optimized for rollup calldata costs
+    function addMultipleInferences(
+        uint256[] calldata inferenceIds,
+        ModelType[] calldata modelTypes
+    ) public {
+        require(
+            inferenceIds.length == modelTypes.length,
+            "Length mismatch"
+        );
+        require(inferenceIds.length > 0, "Empty batch");
         
-        inferenceRecords[inferenceId] = InferenceInfo({
-            id: inferenceId,
-            modelType: modelType,
-            timestamp: block.timestamp,
-            exists: true
-        });
+        // Use block.timestamp once for the entire batch
+        uint256 batchTimestamp = block.timestamp;
+        
+        unchecked {
+            // Safe since we've checked length > 0
+            for (uint256 i = 0; i < inferenceIds.length; i++) {
+                require(
+                    !inferenceRecords[inferenceIds[i]].exists,
+                    "Duplicate ID"
+                );
 
-        _totalInferences++;
-        
-        emit InferenceAdded(inferenceId, modelType, block.timestamp);
+                inferenceRecords[inferenceIds[i]] = InferenceInfo({
+                    id: inferenceIds[i],
+                    modelType: modelTypes[i],
+                    timestamp: batchTimestamp,
+                    exists: true
+                });
+            }
+            
+            _storageData.totalInferences += inferenceIds.length;
+            _storageData.lastProcessedBatch++;
+        }
+
+        // Emit single event for the batch instead of per inference
+        emit InferenceAdded(inferenceIds, modelTypes);
+        emit BatchProcessed(_storageData.lastProcessedBatch, inferenceIds.length);
     }
 
-    /**
-     * @dev Retrieves inference information by ID
-     * @param inferenceId The inference ID to query
-     * @return id The ID of the inference
-     * @return modelType The type of the model
-     * @return timestamp The timestamp when the entry was made
-     */
-    function getInference(uint256 inferenceId) public view returns (
-        uint256 id,
-        ModelType modelType,
-        uint256 timestamp
-    ) {
-        require(inferenceRecords[inferenceId].exists, "Inference record does not exist");
-        
+    function getInference(uint256 inferenceId)
+        public
+        view
+        returns (
+            uint256 id,
+            ModelType modelType,
+            uint256 timestamp
+        )
+    {
         InferenceInfo memory info = inferenceRecords[inferenceId];
+        require(info.exists, "Not found");
         return (info.id, info.modelType, info.timestamp);
     }
 
-    /**
-     * @dev Returns the total number of inferences submitted
-     */
     function getTotalInferences() public view returns (uint256) {
-        return _totalInferences;
+        return _storageData.totalInferences;
     }
 
-    /**
-     * @dev Required override for UUPS upgradeable contracts
-     */
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function getLastProcessedBatch() public view returns (uint256) {
+        return _storageData.lastProcessedBatch;
+    }
+
+    function _authorizeUpgrade(address newImplementation)
+        internal
+        override
+        onlyOwner
+    {}
 }

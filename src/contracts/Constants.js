@@ -5,7 +5,10 @@ export const FACTORY_ADDRESS = '0x70972322Ef49eDb6E11B77fA118EAcD499551da6';
 export const NFT_ADDRESS = '0xe44307E2B214C563506fDd354918B72030c653f1';
 export const CLUSTER_ADDRESS = "0x873305C238A138Ca25d602A2ADceF583dbeCacEe";
 export const USDT_ADDRESS = "0x01f83Ee1FFC925c45AF7e307CDa248fFd3EF00A7";
-export const INFERENCE_ADDRESS = "0x034ECEb896961457358364bad150f0Ea15fCD61d";
+export const INFERENCE_ADDRESS = "0x51b4382016c22189708C2BDfdf65a90f3cd4849e";
+// export const INFERENCE_ADDRESS = "0xe780EF9fc81D9e1247Ff2bddD23fa5BF75390674";
+
+
 
 // Import ABIs
 export const FACTORY_ABI =  [
@@ -2134,20 +2137,33 @@ export const INFERENCE_ABI = [
       {
         "indexed": true,
         "internalType": "uint256",
-        "name": "inferenceId",
+        "name": "batchId",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "enum InferenceRegistry.ModelType",
-        "name": "modelType",
-        "type": "uint8"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "timestamp",
+        "name": "count",
         "type": "uint256"
+      }
+    ],
+    "name": "BatchProcessed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256[]",
+        "name": "inferenceIds",
+        "type": "uint256[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum InferenceRegistry.ModelType[]",
+        "name": "modelTypes",
+        "type": "uint8[]"
       }
     ],
     "name": "InferenceAdded",
@@ -2214,17 +2230,17 @@ export const INFERENCE_ABI = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "inferenceId",
-        "type": "uint256"
+        "internalType": "uint256[]",
+        "name": "inferenceIds",
+        "type": "uint256[]"
       },
       {
-        "internalType": "enum InferenceRegistry.ModelType",
-        "name": "modelType",
-        "type": "uint8"
+        "internalType": "enum InferenceRegistry.ModelType[]",
+        "name": "modelTypes",
+        "type": "uint8[]"
       }
     ],
-    "name": "addInference",
+    "name": "addMultipleInferences",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -2252,6 +2268,19 @@ export const INFERENCE_ABI = [
       {
         "internalType": "uint256",
         "name": "timestamp",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getLastProcessedBatch",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
         "type": "uint256"
       }
     ],

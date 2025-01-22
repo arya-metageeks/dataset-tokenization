@@ -84,10 +84,8 @@ Implementation: 0x68745e6556D4A5a426800301a9A90080B3E8E11D
 Admin: 0x0000000000000000000000000000000000000000
 PS C:\Users\shubh\Desktop\arya\projects\ocean_clone\datasettoken>
 
-
-Deploying Inference Contract..
-inferenceRegistryAddress deployed to: 0x034ECEb896961457358364bad150f0Ea15fCD61d
+DeployinferenceRegistryAddress deployed to: 0xe780EF9fc81D9e1247Ff2bddD23fa5BF75390674
 inferenceRegistry:
-Proxy: 0x034ECEb896961457358364bad150f0Ea15fCD61d
-Implementation: 0x804c1417D77fc541fd0caC212a62695f176FA83F
+Proxy: 0xe780EF9fc81D9e1247Ff2bddD23fa5BF75390674
+Implementation: 0x2110040C141badBC6FBf14cf6412d12d19eF5458
 Admin: 0x0000000000000000000000000000000000000000
